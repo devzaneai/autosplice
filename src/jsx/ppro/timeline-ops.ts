@@ -34,13 +34,22 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
-// Check if a clip's center falls within any silence region
-var isInSilenceRegion = function(clipStartSec: number, clipEndSec: number, cuts: any[], tolerance: number): boolean {
-  var clipCenter = (clipStartSec + clipEndSec) / 2;
+// Check if a clip should be removed.
+// After razor, each clip should be fully inside or outside a cut region.
+// A clip matches a cut if it overlaps with the cut region by more than 50%.
+var shouldRemoveClip = function(clipStart: number, clipEnd: number, cuts: any[]): boolean {
+  var clipDuration = clipEnd - clipStart;
+  if (clipDuration < 0.001) return false; // skip zero-duration clips
+
   for (var i = 0; i < cuts.length; i++) {
     var cut = cuts[i];
-    if (clipCenter >= cut.startTimecode - tolerance &&
-        clipCenter <= cut.endTimecode + tolerance) {
+    // Calculate overlap between clip and cut region
+    var overlapStart = Math.max(clipStart, cut.startTimecode);
+    var overlapEnd = Math.min(clipEnd, cut.endTimecode);
+    var overlap = Math.max(0, overlapEnd - overlapStart);
+
+    // Remove if more than 50% of the clip is inside the cut region
+    if (overlap > clipDuration * 0.5) {
       return true;
     }
   }
@@ -53,22 +62,18 @@ export var applyJumpCuts = function(cutListJson: string): string {
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
   var t, cut;
-  var tolerance = 0.04;
 
   if (cutList.length > 0 && cutList[0].action === "delete") {
 
     // =====================================================
     // PHASE 1: Razor at ALL cut boundaries on ALL tracks
-    // Both video AND audio must be razored explicitly.
     // =====================================================
     for (var ci = 0; ci < cutList.length; ci++) {
       cut = cutList[ci];
-      // Razor every video track
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
         razorAtTime(cut.startTimecode, t, true);
         razorAtTime(cut.endTimecode, t, true);
       }
-      // Razor every audio track explicitly
       for (t = 0; t < seq.audioTracks.numTracks; t++) {
         razorAtTime(cut.startTimecode, t, false);
         razorAtTime(cut.endTimecode, t, false);
@@ -77,17 +82,26 @@ export var applyJumpCuts = function(cutListJson: string): string {
 
     // =====================================================
     // PHASE 2: Remove silent clips with ripple delete.
-    // Process ALL tracks. Reverse index order so indices
-    // don't shift as we remove.
+    // Process each track in reverse index order.
+    // Use overlap-based matching (>50% inside a cut region).
     // =====================================================
+
+    // Count for diagnostics
+    var vRemovedCount = 0;
+    var vKeptCount = 0;
+    var aRemovedCount = 0;
+    var aKeptCount = 0;
 
     // Video tracks
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       var vTrack = seq.videoTracks[t];
       for (var vc = vTrack.clips.numItems - 1; vc >= 0; vc--) {
         var vClip = vTrack.clips[vc];
-        if (isInSilenceRegion(vClip.start.seconds, vClip.end.seconds, cutList, tolerance)) {
+        if (shouldRemoveClip(vClip.start.seconds, vClip.end.seconds, cutList)) {
           vClip.remove(true, true);
+          vRemovedCount++;
+        } else {
+          vKeptCount++;
         }
       }
     }
@@ -97,13 +111,23 @@ export var applyJumpCuts = function(cutListJson: string): string {
       var aTrack = seq.audioTracks[t];
       for (var ac = aTrack.clips.numItems - 1; ac >= 0; ac--) {
         var aClip = aTrack.clips[ac];
-        if (isInSilenceRegion(aClip.start.seconds, aClip.end.seconds, cutList, tolerance)) {
+        if (shouldRemoveClip(aClip.start.seconds, aClip.end.seconds, cutList)) {
           aClip.remove(true, true);
+          aRemovedCount++;
+        } else {
+          aKeptCount++;
         }
       }
     }
 
-    return JSON.stringify({ success: true, cutsApplied: cutList.length });
+    return JSON.stringify({
+      success: true,
+      cutsApplied: cutList.length,
+      videoRemoved: vRemovedCount,
+      videoKept: vKeptCount,
+      audioRemoved: aRemovedCount,
+      audioKept: aKeptCount
+    });
 
   } else {
     // =====================================================
@@ -126,7 +150,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
         var dvt = seq.videoTracks[t];
         for (var dvc = 0; dvc < dvt.clips.numItems; dvc++) {
           var dvClip = dvt.clips[dvc];
-          if (isInSilenceRegion(dvClip.start.seconds, dvClip.end.seconds, [cut], tolerance)) {
+          if (shouldRemoveClip(dvClip.start.seconds, dvClip.end.seconds, [cut])) {
             dvClip.disabled = true;
           }
         }
@@ -135,7 +159,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
         var dat = seq.audioTracks[t];
         for (var dac = 0; dac < dat.clips.numItems; dac++) {
           var daClip = dat.clips[dac];
-          if (isInSilenceRegion(daClip.start.seconds, daClip.end.seconds, [cut], tolerance)) {
+          if (shouldRemoveClip(daClip.start.seconds, daClip.end.seconds, [cut])) {
             daClip.disabled = true;
           }
         }
@@ -160,7 +184,6 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
   }
 
   var t, c, track, clip;
-  var tolerance = 0.04;
   for (var ti = 0; ti < timePoints.length; ti++) {
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       razorAtTime(timePoints[ti], t, true);
@@ -173,8 +196,7 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
       track = seq.videoTracks[t];
       for (c = 0; c < track.clips.numItems; c++) {
         clip = track.clips[c];
-        if (clip.start.seconds >= sw.startTimecode - tolerance &&
-            clip.end.seconds <= sw.endTimecode + tolerance) {
+        if (shouldRemoveClip(clip.start.seconds, clip.end.seconds, [sw])) {
           clip.disabled = (t !== sw.cameraTrackIndex);
         }
       }

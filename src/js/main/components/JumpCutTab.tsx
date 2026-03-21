@@ -236,14 +236,14 @@ export const JumpCutTab = () => {
       const parsed = response as unknown as {
         error?: string;
         cutsApplied?: number;
-        log?: string[];
+        videoRemoved?: number;
+        videoKept?: number;
+        audioRemoved?: number;
+        audioKept?: number;
       };
       if (parsed.error) throw new Error(parsed.error);
-      // Show diagnostic log in scope label
-      if (parsed.log && parsed.log.length > 0) {
-        setScopeLabel(parsed.log.join("\n"));
-        console.log("ApplyJumpCuts log:", parsed.log);
-      }
+      const detail = `V: ${parsed.videoRemoved} removed, ${parsed.videoKept} kept | A: ${parsed.audioRemoved} removed, ${parsed.audioKept} kept`;
+      setScopeLabel(`Applied ${parsed.cutsApplied} cuts. ${detail}`);
       analysis.updateProgress({
         phase: "complete",
         percent: 100,
