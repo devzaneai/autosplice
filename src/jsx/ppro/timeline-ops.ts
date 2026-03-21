@@ -35,13 +35,14 @@ export var applyJumpCuts = function(cutListJson: string): string {
   var seq = app.project.activeSequence;
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
-  // Sort cuts in reverse to preserve timecodes
+  // Sort cuts in reverse to preserve timecodes when deleting
   cutList.sort(function(a: any, b: any) {
     return b.startTimecode - a.startTimecode;
   });
 
   var appliedCount = 0;
   var t, c, cut, track, clip;
+  var tolerance = 0.04; // ~1 frame at 30fps
 
   for (var ci = 0; ci < cutList.length; ci++) {
     cut = cutList[ci];
@@ -57,45 +58,60 @@ export var applyJumpCuts = function(cutListJson: string): string {
     }
 
     if (cut.action === "delete") {
-      // Remove clips in the cut range (reverse iterate)
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        track = seq.audioTracks[t];
-        for (c = track.clips.numItems - 1; c >= 0; c--) {
-          clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - 0.001 &&
-              clip.end.seconds <= cut.endTimecode + 0.001) {
-            clip.remove(true, true);
-          }
-        }
-      }
+      // After razoring, find clips that fall within the cut range and remove them.
+      // A clip is "inside" the cut if its start >= cut start AND its end <= cut end.
+      // We iterate in reverse so removing doesn't shift indices.
+
+      // Process video tracks
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
         track = seq.videoTracks[t];
         for (c = track.clips.numItems - 1; c >= 0; c--) {
           clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - 0.001 &&
-              clip.end.seconds <= cut.endTimecode + 0.001) {
+          var clipStart = clip.start.seconds;
+          var clipEnd = clip.end.seconds;
+          // Check if clip is fully inside the cut range
+          if (clipStart >= cut.startTimecode - tolerance &&
+              clipEnd <= cut.endTimecode + tolerance &&
+              clipStart < cut.endTimecode &&
+              clipEnd > cut.startTimecode) {
+            clip.remove(true, true);
+          }
+        }
+      }
+
+      // Process audio tracks
+      for (t = 0; t < seq.audioTracks.numTracks; t++) {
+        track = seq.audioTracks[t];
+        for (c = track.clips.numItems - 1; c >= 0; c--) {
+          clip = track.clips[c];
+          var aClipStart = clip.start.seconds;
+          var aClipEnd = clip.end.seconds;
+          if (aClipStart >= cut.startTimecode - tolerance &&
+              aClipEnd <= cut.endTimecode + tolerance &&
+              aClipStart < cut.endTimecode &&
+              aClipEnd > cut.startTimecode) {
             clip.remove(true, true);
           }
         }
       }
     } else {
-      // Disable clips in the range
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        track = seq.audioTracks[t];
-        for (c = 0; c < track.clips.numItems; c++) {
-          clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - 0.001 &&
-              clip.end.seconds <= cut.endTimecode + 0.001) {
-            clip.disabled = true;
-          }
-        }
-      }
+      // Disable mode: disable clips in the range
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
         track = seq.videoTracks[t];
         for (c = 0; c < track.clips.numItems; c++) {
           clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - 0.001 &&
-              clip.end.seconds <= cut.endTimecode + 0.001) {
+          if (clip.start.seconds >= cut.startTimecode - tolerance &&
+              clip.end.seconds <= cut.endTimecode + tolerance) {
+            clip.disabled = true;
+          }
+        }
+      }
+      for (t = 0; t < seq.audioTracks.numTracks; t++) {
+        track = seq.audioTracks[t];
+        for (c = 0; c < track.clips.numItems; c++) {
+          clip = track.clips[c];
+          if (clip.start.seconds >= cut.startTimecode - tolerance &&
+              clip.end.seconds <= cut.endTimecode + tolerance) {
             clip.disabled = true;
           }
         }
@@ -113,7 +129,6 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
   var seq = app.project.activeSequence;
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
-  // Collect unique time points for razoring
   var timePoints: number[] = [];
   var sw, time;
   var seen: any = {};
@@ -129,23 +144,22 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
     }
   }
 
-  // Razor all video tracks at all time points
   var t, c, track, clip;
+  var tolerance = 0.04;
   for (var ti = 0; ti < timePoints.length; ti++) {
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       razorAtTime(timePoints[ti], t, true);
     }
   }
 
-  // Enable active camera, disable others
   for (var si2 = 0; si2 < switches.length; si2++) {
     sw = switches[si2];
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       track = seq.videoTracks[t];
       for (c = 0; c < track.clips.numItems; c++) {
         clip = track.clips[c];
-        if (clip.start.seconds >= sw.startTimecode - 0.001 &&
-            clip.end.seconds <= sw.endTimecode + 0.001) {
+        if (clip.start.seconds >= sw.startTimecode - tolerance &&
+            clip.end.seconds <= sw.endTimecode + tolerance) {
           clip.disabled = (t !== sw.cameraTrackIndex);
         }
       }
