@@ -18,25 +18,38 @@ var secondsToFrameAlignedTicks = function (seconds: number): string {
   return (frameNumber * ticksPerFrame).toString();
 };
 
+// Convert seconds to a Premiere timecode string using Time.getFormatted()
+// This is the format the QE DOM razor() expects (e.g., "00;05;30;15")
+var secondsToTimecode = function (seconds: number): string {
+  var seq = app.project.activeSequence;
+  var time = new Time();
+  time.seconds = seconds;
+  var settings = seq.getSettings();
+  return time.getFormatted(
+    settings.videoFrameRate,
+    settings.videoDisplayFormat,
+  );
+};
+
 export var razorAtTime = function (
   timeSeconds: number,
   trackIndex: number,
   isVideo: boolean,
 ): boolean {
   if (!initQE()) return false;
-  var seq = qe.project.getActiveSequence();
-  if (!seq) return false;
-  var ticks = secondsToFrameAlignedTicks(timeSeconds);
+  var qeSeq = qe.project.getActiveSequence();
+  if (!qeSeq) return false;
+  var timecode = secondsToTimecode(timeSeconds);
   if (isVideo) {
-    var vTrack = seq.getVideoTrackAt(trackIndex);
+    var vTrack = qeSeq.getVideoTrackAt(trackIndex);
     if (vTrack) {
-      vTrack.razor(ticks);
+      vTrack.razor(timecode);
       return true;
     }
   } else {
-    var aTrack = seq.getAudioTrackAt(trackIndex);
+    var aTrack = qeSeq.getAudioTrackAt(trackIndex);
     if (aTrack) {
-      aTrack.razor(ticks);
+      aTrack.razor(timecode);
       return true;
     }
   }
@@ -57,8 +70,6 @@ export var applyJumpCuts = function (cutListJson: string): any {
   // PHASE 1: Razor at ALL cut boundaries on ALL tracks
   // =====================================================
   for (i = 0; i < cutList.length; i++) {
-    var startTicks = secondsToFrameAlignedTicks(cutList[i].startTimecode);
-    var endTicks = secondsToFrameAlignedTicks(cutList[i].endTimecode);
     for (t = 0; t < numVideoTracks; t++) {
       razorAtTime(cutList[i].startTimecode, t, true);
       razorAtTime(cutList[i].endTimecode, t, true);
@@ -98,12 +109,27 @@ export var applyJumpCuts = function (cutListJson: string): any {
     return { success: true, cutsApplied: cutList.length, mode: "disable" };
   }
 
+  // DIAGNOSTIC: clip count after razor
+  var v1After = seq.videoTracks[0].clips.numItems;
+  var a1After = seq.audioTracks[0].clips.numItems;
+  var sampleClips: string[] = [];
+  for (var fc = 0; fc < v1After && fc < 5; fc++) {
+    var fcC = seq.videoTracks[0].clips[fc];
+    sampleClips.push(
+      fcC.start.seconds.toFixed(2) + "-" + fcC.end.seconds.toFixed(2),
+    );
+  }
+  var sampleCuts: string[] = [];
+  for (var fci = 0; fci < cutList.length && fci < 5; fci++) {
+    sampleCuts.push(
+      cutList[fci].startTimecode.toFixed(2) +
+        "-" +
+        cutList[fci].endTimecode.toFixed(2),
+    );
+  }
+
   // =====================================================
-  // PHASE 2: Delete mode — remove clips in silence regions
-  // Process in REVERSE timeline order so ripple doesn't
-  // affect earlier clips' positions.
-  //
-  // Sort cutList by startTimecode descending (latest first)
+  // PHASE 2: Delete mode
   // =====================================================
   cutList.sort(function (a: any, b: any) {
     return b.startTimecode - a.startTimecode;
@@ -151,6 +177,10 @@ export var applyJumpCuts = function (cutListJson: string): any {
     mode: "delete",
     removedVideo: removedVideo,
     removedAudio: removedAudio,
+    v1AfterRazor: v1After,
+    a1AfterRazor: a1After,
+    sampleClips: sampleClips,
+    sampleCuts: sampleCuts,
   };
 };
 
