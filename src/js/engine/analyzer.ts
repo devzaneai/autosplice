@@ -1,4 +1,4 @@
-import type { AudioFrameData } from "../../../shared/types";
+import type { AudioFrameData } from "../../shared/types";
 
 export const calculateRms = (samples: Float32Array): number => {
   if (samples.length === 0) return 0;
@@ -18,7 +18,7 @@ export const analyzeFrames = (
   samples: Float32Array,
   sampleRate: number,
   frameLength: number,
-  hopSize: number
+  hopSize: number,
 ): AudioFrameData => {
   const totalFrames = Math.floor((samples.length - frameLength) / hopSize) + 1;
   const rmsValues = new Float32Array(totalFrames);
