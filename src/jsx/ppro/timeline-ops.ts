@@ -5,13 +5,31 @@ export var initQE = function(): boolean {
   return typeof qe !== "undefined";
 };
 
+// Get ticks-per-frame for the active sequence
+var getTicksPerFrame = function(): number {
+  var seq = app.project.activeSequence;
+  if (!seq) return 8475667200; // default to 29.97fps
+  var settings = seq.getSettings();
+  // videoFrameRate.ticks gives us the duration of one frame in ticks
+  return parseInt(settings.videoFrameRate.ticks, 10);
+};
+
+// Converts seconds to Premiere ticks, snapped to nearest frame boundary
+var secondsToFrameAlignedTicks = function(seconds: number): string {
+  var rawTicks = seconds * 254016000000;
+  var ticksPerFrame = getTicksPerFrame();
+  // Snap to nearest frame
+  var frameNumber = Math.round(rawTicks / ticksPerFrame);
+  return (frameNumber * ticksPerFrame).toString();
+};
+
 export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVideo: boolean): boolean {
   if (!initQE()) return false;
 
   var seq = qe.project.getActiveSequence();
   if (!seq) return false;
 
-  var ticks = Math.round(timeSeconds * 254016000000).toString();
+  var ticks = secondsToFrameAlignedTicks(timeSeconds);
 
   if (isVideo) {
     var vTrack = seq.getVideoTrackAt(trackIndex);
@@ -30,11 +48,6 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
-// Converts seconds to Premiere's internal time code ticks string
-var secondsToTicks = function(seconds: number): string {
-  return Math.round(seconds * 254016000000).toString();
-};
-
 export var applyJumpCuts = function(cutListJson: string): string {
   var cutList = JSON.parse(cutListJson);
   var seq = app.project.activeSequence;
@@ -48,7 +61,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
   var appliedCount = 0;
   var t, cut;
 
-  // Phase 1: Razor all cuts first
+  // Phase 1: Razor all cuts first (frame-aligned)
   for (var ci = 0; ci < cutList.length; ci++) {
     cut = cutList[ci];
     for (t = 0; t < seq.audioTracks.numTracks; t++) {
@@ -63,23 +76,15 @@ export var applyJumpCuts = function(cutListJson: string): string {
 
   // Phase 2: Remove or disable the silent sections
   if (cutList.length > 0 && cutList[0].action === "delete") {
-    // Use Premiere's in/out point + extract approach (most reliable)
     // Process in reverse order so earlier timecodes stay valid
     for (var di = 0; di < cutList.length; di++) {
-      cut = cutList[di]; // already sorted in reverse
+      cut = cutList[di];
 
-      // Set in and out points on the sequence
-      var inTime = new Time();
-      inTime.ticks = secondsToTicks(cut.startTimecode);
-      var outTime = new Time();
-      outTime.ticks = secondsToTicks(cut.endTimecode);
+      // Set in/out points using frame-aligned ticks
+      seq.setInPoint(secondsToFrameAlignedTicks(cut.startTimecode));
+      seq.setOutPoint(secondsToFrameAlignedTicks(cut.endTimecode));
 
-      seq.setInPoint(inTime.ticks);
-      seq.setOutPoint(outTime.ticks);
-
-      // Execute "Extract" command (ripple delete between in/out)
-      // Extract = Premiere menu Edit > Extract (shortcut: ')
-      // This removes content between in/out and closes the gap
+      // Extract = ripple delete between in/out
       if (initQE()) {
         qe.project.getActiveSequence().extract();
       }
@@ -87,12 +92,12 @@ export var applyJumpCuts = function(cutListJson: string): string {
       appliedCount++;
     }
 
-    // Clear in/out points after we're done
+    // Clear in/out points
     seq.setInPoint("");
     seq.setOutPoint("");
 
   } else {
-    // Disable mode: disable clips in each cut range
+    // Disable mode
     var tolerance = 0.04;
     for (var dsi = 0; dsi < cutList.length; dsi++) {
       cut = cutList[dsi];
@@ -107,9 +112,9 @@ export var applyJumpCuts = function(cutListJson: string): string {
         }
       }
       for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        var aTrack = seq.audioTracks[t];
-        for (var ac = 0; ac < aTrack.clips.numItems; ac++) {
-          var aClip = aTrack.clips[ac];
+        var aTrack2 = seq.audioTracks[t];
+        for (var ac = 0; ac < aTrack2.clips.numItems; ac++) {
+          var aClip = aTrack2.clips[ac];
           if (aClip.start.seconds >= cut.startTimecode - tolerance &&
               aClip.end.seconds <= cut.endTimecode + tolerance) {
             aClip.disabled = true;
