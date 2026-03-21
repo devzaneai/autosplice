@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Slider } from "./Slider";
 import { ProgressBar } from "./ProgressBar";
 import { StatusMessage } from "./StatusMessage";
@@ -12,8 +12,44 @@ import { evalTS } from "../../lib/utils/bolt";
 export const JumpCutTab = () => {
   const [settings, setSettings] = useState<JumpCutSettings>(DEFAULT_JUMP_CUT);
   const [result, setResult] = useState<JumpCutResult | null>(null);
-  const [scopeLabel, setScopeLabel] = useState("Ready");
+  const [scopeLabel, setScopeLabel] = useState("Checking sequence...");
+  const [hasSequence, setHasSequence] = useState(false);
   const analysis = useAnalysis();
+
+  useEffect(() => {
+    const checkSequence = async () => {
+      try {
+        if (!window.cep) {
+          setScopeLabel("Not in Premiere Pro");
+          return;
+        }
+        const info = await evalTS("getSequenceInfo");
+        const seqInfo = info as any;
+        if (seqInfo && !seqInfo.error) {
+          setHasSequence(true);
+          if (seqInfo.selectedClips && seqInfo.selectedClips.length > 0) {
+            setScopeLabel(
+              `${seqInfo.selectedClips.length} selected clip(s) in "${seqInfo.name}"`,
+            );
+          } else if (seqInfo.inPoint !== null && seqInfo.outPoint !== null) {
+            setScopeLabel(`In/Out range in "${seqInfo.name}"`);
+          } else {
+            setScopeLabel(`Full sequence: "${seqInfo.name}" (Track A1)`);
+          }
+        } else {
+          setHasSequence(false);
+          setScopeLabel("No active sequence — open a sequence first");
+        }
+      } catch {
+        setScopeLabel("Ready — click Analyze to start");
+        setHasSequence(true);
+      }
+    };
+
+    checkSequence();
+    const interval = setInterval(checkSequence, 3000);
+    return () => clearInterval(interval);
+  }, []);
 
   const updateSetting = <K extends keyof JumpCutSettings>(
     key: K,
@@ -137,7 +173,7 @@ export const JumpCutTab = () => {
       <div className="button-group">
         <button
           onClick={handleAnalyze}
-          disabled={analysis.isAnalyzing}
+          disabled={analysis.isAnalyzing || !hasSequence}
           className="btn-primary"
         >
           Analyze
