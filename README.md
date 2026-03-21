@@ -27,7 +27,7 @@ AutoSplice is a free alternative to AutoPod ($29/month). It automates two of the
 
 ### Quick Install
 
-1. Download `AutoSplice-v1.0.0.zip` from [GitHub Releases](https://github.com/autosplice/autosplice/releases)
+1. Download `AutoSplice-v1.0.0.zip` from [GitHub Releases](https://github.com/devzaneai/autosplice/releases)
 2. Unzip and run the install script:
    - **macOS:** `bash install.sh`
    - **Windows:** Double-click `install.bat`
@@ -65,7 +65,7 @@ All edits are undoable with Ctrl+Z / Cmd+Z.
 ## Building from Source
 
 ```bash
-git clone https://github.com/autosplice/autosplice.git
+git clone https://github.com/devzaneai/autosplice.git
 cd autosplice
 npm install
 npm run build

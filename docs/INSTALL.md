@@ -7,7 +7,7 @@
 
 ## Option 1: Download Release (Recommended)
 
-1. Go to [GitHub Releases](https://github.com/autosplice/autosplice/releases)
+1. Go to [GitHub Releases](https://github.com/devzaneai/autosplice/releases)
 2. Download `AutoSplice-v1.0.0.zip`
 3. Unzip the archive
 4. Run the install script:
@@ -27,7 +27,7 @@
 ## Option 3: Build from Source
 
 ```bash
-git clone https://github.com/autosplice/autosplice.git
+git clone https://github.com/devzaneai/autosplice.git
 cd autosplice
 npm install
 npm run build

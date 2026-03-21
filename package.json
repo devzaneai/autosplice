@@ -63,9 +63,9 @@
     "vitest": "^3.1.0"
   },
   "license": "MIT",
-  "author": "AutoSplice Contributors",
+  "author": "devZane",
   "repository": {
     "type": "git",
-    "url": "https://github.com/autosplice/autosplice.git"
+    "url": "https://github.com/devzaneai/autosplice.git"
   }
 }
