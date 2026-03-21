@@ -8,8 +8,7 @@ export var initQE = function(): boolean {
 var getTicksPerFrame = function(): number {
   var seq = app.project.activeSequence;
   if (!seq) return 8475667200;
-  var settings = seq.getSettings();
-  return parseInt(settings.videoFrameRate.ticks, 10);
+  return parseInt(seq.getSettings().videoFrameRate.ticks, 10);
 };
 
 var secondsToFrameAlignedTicks = function(seconds: number): string {
@@ -34,139 +33,115 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
-// Check if a clip should be removed.
-// After razor, each clip should be fully inside or outside a cut region.
-// A clip matches a cut if it overlaps with the cut region by more than 50%.
-var shouldRemoveClip = function(clipStart: number, clipEnd: number, cuts: any[]): boolean {
-  var clipDuration = clipEnd - clipStart;
-  if (clipDuration < 0.001) return false; // skip zero-duration clips
-
-  for (var i = 0; i < cuts.length; i++) {
-    var cut = cuts[i];
-    // Calculate overlap between clip and cut region
-    var overlapStart = Math.max(clipStart, cut.startTimecode);
-    var overlapEnd = Math.min(clipEnd, cut.endTimecode);
-    var overlap = Math.max(0, overlapEnd - overlapStart);
-
-    // Remove if more than 50% of the clip is inside the cut region
-    if (overlap > clipDuration * 0.5) {
-      return true;
-    }
-  }
-  return false;
-};
-
 export var applyJumpCuts = function(cutListJson: string): string {
   var cutList = JSON.parse(cutListJson);
   var seq = app.project.activeSequence;
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
-  var t, cut;
+  var t, i;
+  var numVideoTracks = seq.videoTracks.numTracks;
+  var numAudioTracks = seq.audioTracks.numTracks;
+  var isDelete = cutList.length > 0 && cutList[0].action === "delete";
 
-  if (cutList.length > 0 && cutList[0].action === "delete") {
-
-    // =====================================================
-    // PHASE 1: Razor at ALL cut boundaries on ALL tracks
-    // =====================================================
-    for (var ci = 0; ci < cutList.length; ci++) {
-      cut = cutList[ci];
-      for (t = 0; t < seq.videoTracks.numTracks; t++) {
-        razorAtTime(cut.startTimecode, t, true);
-        razorAtTime(cut.endTimecode, t, true);
-      }
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        razorAtTime(cut.startTimecode, t, false);
-        razorAtTime(cut.endTimecode, t, false);
-      }
+  // =====================================================
+  // PHASE 1: Razor at ALL cut boundaries on ALL tracks
+  // =====================================================
+  for (i = 0; i < cutList.length; i++) {
+    var startTicks = secondsToFrameAlignedTicks(cutList[i].startTimecode);
+    var endTicks = secondsToFrameAlignedTicks(cutList[i].endTimecode);
+    for (t = 0; t < numVideoTracks; t++) {
+      razorAtTime(cutList[i].startTimecode, t, true);
+      razorAtTime(cutList[i].endTimecode, t, true);
     }
-
-    // =====================================================
-    // PHASE 2: Remove silent clips with ripple delete.
-    // Process each track in reverse index order.
-    // Use overlap-based matching (>50% inside a cut region).
-    // =====================================================
-
-    // Count for diagnostics
-    var vRemovedCount = 0;
-    var vKeptCount = 0;
-    var aRemovedCount = 0;
-    var aKeptCount = 0;
-
-    // Video tracks
-    for (t = 0; t < seq.videoTracks.numTracks; t++) {
-      var vTrack = seq.videoTracks[t];
-      for (var vc = vTrack.clips.numItems - 1; vc >= 0; vc--) {
-        var vClip = vTrack.clips[vc];
-        if (shouldRemoveClip(vClip.start.seconds, vClip.end.seconds, cutList)) {
-          vClip.remove(true, true);
-          vRemovedCount++;
-        } else {
-          vKeptCount++;
-        }
-      }
+    for (t = 0; t < numAudioTracks; t++) {
+      razorAtTime(cutList[i].startTimecode, t, false);
+      razorAtTime(cutList[i].endTimecode, t, false);
     }
-
-    // Audio tracks
-    for (t = 0; t < seq.audioTracks.numTracks; t++) {
-      var aTrack = seq.audioTracks[t];
-      for (var ac = aTrack.clips.numItems - 1; ac >= 0; ac--) {
-        var aClip = aTrack.clips[ac];
-        if (shouldRemoveClip(aClip.start.seconds, aClip.end.seconds, cutList)) {
-          aClip.remove(true, true);
-          aRemovedCount++;
-        } else {
-          aKeptCount++;
-        }
-      }
-    }
-
-    return JSON.stringify({
-      success: true,
-      cutsApplied: cutList.length,
-      videoRemoved: vRemovedCount,
-      videoKept: vKeptCount,
-      audioRemoved: aRemovedCount,
-      audioKept: aKeptCount
-    });
-
-  } else {
-    // =====================================================
-    // DISABLE MODE
-    // =====================================================
-    for (var rci = 0; rci < cutList.length; rci++) {
-      cut = cutList[rci];
-      for (t = 0; t < seq.videoTracks.numTracks; t++) {
-        razorAtTime(cut.startTimecode, t, true);
-        razorAtTime(cut.endTimecode, t, true);
-      }
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        razorAtTime(cut.startTimecode, t, false);
-        razorAtTime(cut.endTimecode, t, false);
-      }
-    }
-    for (var dsi = 0; dsi < cutList.length; dsi++) {
-      cut = cutList[dsi];
-      for (t = 0; t < seq.videoTracks.numTracks; t++) {
-        var dvt = seq.videoTracks[t];
-        for (var dvc = 0; dvc < dvt.clips.numItems; dvc++) {
-          var dvClip = dvt.clips[dvc];
-          if (shouldRemoveClip(dvClip.start.seconds, dvClip.end.seconds, [cut])) {
-            dvClip.disabled = true;
-          }
-        }
-      }
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        var dat = seq.audioTracks[t];
-        for (var dac = 0; dac < dat.clips.numItems; dac++) {
-          var daClip = dat.clips[dac];
-          if (shouldRemoveClip(daClip.start.seconds, daClip.end.seconds, [cut])) {
-            daClip.disabled = true;
-          }
-        }
-      }
-    }
-    return JSON.stringify({ success: true, cutsApplied: cutList.length });
   }
+
+  if (!isDelete) {
+    // Disable mode: mark matching clips as disabled
+    for (i = 0; i < cutList.length; i++) {
+      var cutStart = cutList[i].startTimecode;
+      var cutEnd = cutList[i].endTimecode;
+      for (t = 0; t < numVideoTracks; t++) {
+        var vt = seq.videoTracks[t];
+        for (var vc = 0; vc < vt.clips.numItems; vc++) {
+          var vcClip = vt.clips[vc];
+          var vcMid = (vcClip.start.seconds + vcClip.end.seconds) / 2;
+          if (vcMid >= cutStart && vcMid <= cutEnd) {
+            vcClip.disabled = true;
+          }
+        }
+      }
+      for (t = 0; t < numAudioTracks; t++) {
+        var at = seq.audioTracks[t];
+        for (var ac = 0; ac < at.clips.numItems; ac++) {
+          var acClip = at.clips[ac];
+          var acMid = (acClip.start.seconds + acClip.end.seconds) / 2;
+          if (acMid >= cutStart && acMid <= cutEnd) {
+            acClip.disabled = true;
+          }
+        }
+      }
+    }
+    return JSON.stringify({ success: true, cutsApplied: cutList.length, mode: "disable" });
+  }
+
+  // =====================================================
+  // PHASE 2: Delete mode — remove clips in silence regions
+  // Process in REVERSE timeline order so ripple doesn't
+  // affect earlier clips' positions.
+  //
+  // Sort cutList by startTimecode descending (latest first)
+  // =====================================================
+  cutList.sort(function(a: any, b: any) {
+    return b.startTimecode - a.startTimecode;
+  });
+
+  var removedVideo = 0;
+  var removedAudio = 0;
+
+  for (i = 0; i < cutList.length; i++) {
+    var cStart = cutList[i].startTimecode;
+    var cEnd = cutList[i].endTimecode;
+
+    // Remove matching video clips (reverse index)
+    for (t = 0; t < numVideoTracks; t++) {
+      var vTrack = seq.videoTracks[t];
+      for (var vIdx = vTrack.clips.numItems - 1; vIdx >= 0; vIdx--) {
+        var vClip = vTrack.clips[vIdx];
+        var vMid = (vClip.start.seconds + vClip.end.seconds) / 2;
+        if (vMid >= cStart && vMid <= cEnd) {
+          vClip.remove(true, true);
+          removedVideo++;
+          break; // Only one clip per track per cut region
+        }
+      }
+    }
+
+    // Remove matching audio clips (reverse index)
+    for (t = 0; t < numAudioTracks; t++) {
+      var aTrack = seq.audioTracks[t];
+      for (var aIdx = aTrack.clips.numItems - 1; aIdx >= 0; aIdx--) {
+        var aClip = aTrack.clips[aIdx];
+        var aMid = (aClip.start.seconds + aClip.end.seconds) / 2;
+        if (aMid >= cStart && aMid <= cEnd) {
+          aClip.remove(true, true);
+          removedAudio++;
+          break; // Only one clip per track per cut region
+        }
+      }
+    }
+  }
+
+  return JSON.stringify({
+    success: true,
+    cutsApplied: cutList.length,
+    mode: "delete",
+    removedVideo: removedVideo,
+    removedAudio: removedAudio
+  });
 };
 
 export var applyMultiCamSwitches = function(switchesJson: string): string {
@@ -196,7 +171,8 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
       track = seq.videoTracks[t];
       for (c = 0; c < track.clips.numItems; c++) {
         clip = track.clips[c];
-        if (shouldRemoveClip(clip.start.seconds, clip.end.seconds, [sw])) {
+        var mid = (clip.start.seconds + clip.end.seconds) / 2;
+        if (mid >= sw.startTimecode && mid <= sw.endTimecode) {
           clip.disabled = (t !== sw.cameraTrackIndex);
         }
       }

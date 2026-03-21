@@ -19,10 +19,12 @@ export const JumpCutTab = () => {
     "Ready — click Analyze to start",
   );
   const [hasSequence, setHasSequence] = useState(true);
+  const [lockScope, setLockScope] = useState(false);
   const analysis = useAnalysis();
 
   useEffect(() => {
     if (!window.cep) return;
+    if (lockScope) return; // Don't poll when showing diagnostic data
 
     let cancelled = false;
 
@@ -56,13 +58,13 @@ export const JumpCutTab = () => {
     };
 
     const initialDelay = setTimeout(checkSequence, 2000);
-    const interval = setInterval(checkSequence, 3000);
+    const interval = setInterval(checkSequence, 5000);
     return () => {
       cancelled = true;
       clearTimeout(initialDelay);
       clearInterval(interval);
     };
-  }, []);
+  }, [lockScope]);
 
   const updateSetting = <K extends keyof JumpCutSettings>(
     key: K,
@@ -72,6 +74,7 @@ export const JumpCutTab = () => {
   };
 
   const handleAnalyze = useCallback(async () => {
+    setLockScope(true);
     analysis.startAnalysis();
     try {
       // Step 1: Get sequence info from Premiere
@@ -240,10 +243,12 @@ export const JumpCutTab = () => {
         videoKept?: number;
         audioRemoved?: number;
         audioKept?: number;
+        diag?: string[];
       };
       if (parsed.error) throw new Error(parsed.error);
-      const detail = `V: ${parsed.videoRemoved} removed, ${parsed.videoKept} kept | A: ${parsed.audioRemoved} removed, ${parsed.audioKept} kept`;
-      setScopeLabel(`Applied ${parsed.cutsApplied} cuts. ${detail}`);
+      const detail = `V: ${parsed.videoRemoved || 0} removed, ${parsed.videoKept || 0} kept | A: ${parsed.audioRemoved || 0} removed, ${parsed.audioKept || 0} kept`;
+      const diagText = parsed.diag ? "\n" + parsed.diag.join("\n") : "";
+      setScopeLabel(`Applied ${parsed.cutsApplied} cuts. ${detail}${diagText}`);
       analysis.updateProgress({
         phase: "complete",
         percent: 100,
