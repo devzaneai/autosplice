@@ -238,14 +238,7 @@ export const JumpCutTab = () => {
       );
       const parsed = response as any;
       if (parsed.error) throw new Error(parsed.error);
-      const lines = [
-        `Applied ${parsed.cutsApplied} cuts.`,
-        `V removed: ${parsed.removedVideo} | A removed: ${parsed.removedAudio}`,
-        `V1 after razor: ${parsed.v1AfterRazor} clips | A1 after razor: ${parsed.a1AfterRazor} clips`,
-        `Sample clips: ${(parsed.sampleClips || []).join(", ")}`,
-        `Sample cuts: ${(parsed.sampleCuts || []).join(", ")}`,
-      ];
-      setScopeLabel(lines.join("\n"));
+      setScopeLabel(`Done! Removed ${parsed.removedVideo} silent segments.`);
       analysis.updateProgress({
         phase: "complete",
         percent: 100,
@@ -264,39 +257,6 @@ export const JumpCutTab = () => {
         type: "cut" as const,
       }))
     : [];
-
-  const handleDebug = useCallback(async () => {
-    setLockScope(true);
-    try {
-      const evalTS = await getEvalTS();
-      const state = (await evalTS("debugTrackState")) as any;
-      let text = `Tracks: V=${state.videoTrackCount} A=${state.audioTrackCount}\n`;
-      text += `V1 clips: ${state.v1ClipCount}\n`;
-      if (state.v1Clips) {
-        for (const c of state.v1Clips) {
-          text += `  V1[${c.idx}] ${c.start.toFixed(3)}-${c.end.toFixed(3)} dur=${c.dur.toFixed(3)} type=${c.mediaType}\n`;
-        }
-      }
-      text += `A1 clips: ${state.a1ClipCount}\n`;
-      if (state.a1Clips) {
-        for (const c of state.a1Clips) {
-          text += `  A1[${c.idx}] ${c.start.toFixed(3)}-${c.end.toFixed(3)} dur=${c.dur.toFixed(3)} type=${c.mediaType}\n`;
-        }
-      }
-      // Also show first 5 cut regions for comparison
-      if (result) {
-        text += `\nFirst 5 cuts from analysis:\n`;
-        for (let i = 0; i < Math.min(result.cutList.length, 5); i++) {
-          const cut = result.cutList[i];
-          text += `  cut[${i}] ${cut.startTimecode.toFixed(3)}-${cut.endTimecode.toFixed(3)}\n`;
-        }
-      }
-      setScopeLabel(text);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      setScopeLabel(`Debug error: ${msg}`);
-    }
-  }, [result]);
 
   return (
     <div className="tab-content">
@@ -378,18 +338,6 @@ export const JumpCutTab = () => {
           className="btn-apply"
         >
           Apply
-        </button>
-        <button
-          onClick={handleDebug}
-          className="btn-apply"
-          style={{
-            flex: "none",
-            width: "auto",
-            padding: "8px 10px",
-            fontSize: "10px",
-          }}
-        >
-          Debug
         </button>
       </div>
 

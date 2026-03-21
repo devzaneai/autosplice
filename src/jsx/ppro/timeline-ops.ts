@@ -109,25 +109,6 @@ export var applyJumpCuts = function (cutListJson: string): any {
     return { success: true, cutsApplied: cutList.length, mode: "disable" };
   }
 
-  // DIAGNOSTIC: clip count after razor
-  var v1After = seq.videoTracks[0].clips.numItems;
-  var a1After = seq.audioTracks[0].clips.numItems;
-  var sampleClips: string[] = [];
-  for (var fc = 0; fc < v1After && fc < 5; fc++) {
-    var fcC = seq.videoTracks[0].clips[fc];
-    sampleClips.push(
-      fcC.start.seconds.toFixed(2) + "-" + fcC.end.seconds.toFixed(2),
-    );
-  }
-  var sampleCuts: string[] = [];
-  for (var fci = 0; fci < cutList.length && fci < 5; fci++) {
-    sampleCuts.push(
-      cutList[fci].startTimecode.toFixed(2) +
-        "-" +
-        cutList[fci].endTimecode.toFixed(2),
-    );
-  }
-
   // =====================================================
   // PHASE 2: Delete mode
   // =====================================================
@@ -177,10 +158,6 @@ export var applyJumpCuts = function (cutListJson: string): any {
     mode: "delete",
     removedVideo: removedVideo,
     removedAudio: removedAudio,
-    v1AfterRazor: v1After,
-    a1AfterRazor: a1After,
-    sampleClips: sampleClips,
-    sampleCuts: sampleCuts,
   };
 };
 
