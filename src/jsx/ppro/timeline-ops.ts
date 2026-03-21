@@ -8,9 +8,8 @@ export var initQE = function(): boolean {
 // Get ticks-per-frame for the active sequence
 var getTicksPerFrame = function(): number {
   var seq = app.project.activeSequence;
-  if (!seq) return 8475667200; // default to 29.97fps
+  if (!seq) return 8475667200; // default 29.97fps
   var settings = seq.getSettings();
-  // videoFrameRate.ticks gives us the duration of one frame in ticks
   return parseInt(settings.videoFrameRate.ticks, 10);
 };
 
@@ -18,7 +17,6 @@ var getTicksPerFrame = function(): number {
 var secondsToFrameAlignedTicks = function(seconds: number): string {
   var rawTicks = seconds * 254016000000;
   var ticksPerFrame = getTicksPerFrame();
-  // Snap to nearest frame
   var frameNumber = Math.round(rawTicks / ticksPerFrame);
   return (frameNumber * ticksPerFrame).toString();
 };
@@ -48,6 +46,30 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
+// Close all gaps on a track by moving clips to fill empty spaces
+var closeTrackGaps = function(trackRef: any, isQETrack: boolean): number {
+  if (!isQETrack) return 0;
+  var gapsClosed = 0;
+  var numItems = trackRef.numItems;
+
+  for (var i = 0; i < numItems; i++) {
+    var item = trackRef.getItemAt(i);
+    // QE DOM items have a type property: "Clip" or "Empty"
+    //@ts-ignore
+    if (item && item.type === "Empty") {
+      // This is a gap — try to remove it
+      //@ts-ignore
+      item.remove(true, true);
+      gapsClosed++;
+      // After removing, indices shift, so restart
+      numItems = trackRef.numItems;
+      i = -1; // will be incremented to 0
+    }
+  }
+
+  return gapsClosed;
+};
+
 export var applyJumpCuts = function(cutListJson: string): string {
   var cutList = JSON.parse(cutListJson);
   var seq = app.project.activeSequence;
@@ -61,30 +83,25 @@ export var applyJumpCuts = function(cutListJson: string): string {
   var appliedCount = 0;
   var t, cut;
 
-  // Phase 1: Razor all cuts first (frame-aligned)
-  for (var ci = 0; ci < cutList.length; ci++) {
-    cut = cutList[ci];
-    for (t = 0; t < seq.audioTracks.numTracks; t++) {
-      razorAtTime(cut.startTimecode, t, false);
-      razorAtTime(cut.endTimecode, t, false);
-    }
-    for (t = 0; t < seq.videoTracks.numTracks; t++) {
-      razorAtTime(cut.startTimecode, t, true);
-      razorAtTime(cut.endTimecode, t, true);
-    }
-  }
-
-  // Phase 2: Remove or disable the silent sections
   if (cutList.length > 0 && cutList[0].action === "delete") {
-    // Process in reverse order so earlier timecodes stay valid
+
+    // Phase 1: Razor only video tracks at all cut points.
+    // Premiere will auto-razor linked audio clips.
+    for (var ci = 0; ci < cutList.length; ci++) {
+      cut = cutList[ci];
+      for (t = 0; t < seq.videoTracks.numTracks; t++) {
+        razorAtTime(cut.startTimecode, t, true);
+        razorAtTime(cut.endTimecode, t, true);
+      }
+    }
+
+    // Phase 2: Extract each silent region (reverse order)
     for (var di = 0; di < cutList.length; di++) {
       cut = cutList[di];
 
-      // Set in/out points using frame-aligned ticks
       seq.setInPoint(secondsToFrameAlignedTicks(cut.startTimecode));
       seq.setOutPoint(secondsToFrameAlignedTicks(cut.endTimecode));
 
-      // Extract = ripple delete between in/out
       if (initQE()) {
         qe.project.getActiveSequence().extract();
       }
@@ -96,9 +113,39 @@ export var applyJumpCuts = function(cutListJson: string): string {
     seq.setInPoint("");
     seq.setOutPoint("");
 
+    // Phase 3: Close any remaining gaps on all tracks using QE DOM
+    if (initQE()) {
+      var qeSeq = qe.project.getActiveSequence();
+      if (qeSeq) {
+        // Close gaps on video tracks
+        for (t = 0; t < seq.videoTracks.numTracks; t++) {
+          var qeVTrack = qeSeq.getVideoTrackAt(t);
+          if (qeVTrack) {
+            closeTrackGaps(qeVTrack, true);
+          }
+        }
+        // Close gaps on audio tracks
+        for (t = 0; t < seq.audioTracks.numTracks; t++) {
+          var qeATrack = qeSeq.getAudioTrackAt(t);
+          if (qeATrack) {
+            closeTrackGaps(qeATrack, true);
+          }
+        }
+      }
+    }
+
   } else {
-    // Disable mode
+    // Disable mode: razor and disable clips in each cut range
     var tolerance = 0.04;
+
+    for (var rci = 0; rci < cutList.length; rci++) {
+      cut = cutList[rci];
+      for (t = 0; t < seq.videoTracks.numTracks; t++) {
+        razorAtTime(cut.startTimecode, t, true);
+        razorAtTime(cut.endTimecode, t, true);
+      }
+    }
+
     for (var dsi = 0; dsi < cutList.length; dsi++) {
       cut = cutList[dsi];
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
