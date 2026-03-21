@@ -30,24 +30,27 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
+// Converts seconds to Premiere's internal time code ticks string
+var secondsToTicks = function(seconds: number): string {
+  return Math.round(seconds * 254016000000).toString();
+};
+
 export var applyJumpCuts = function(cutListJson: string): string {
   var cutList = JSON.parse(cutListJson);
   var seq = app.project.activeSequence;
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
-  // Sort cuts in reverse to preserve timecodes when deleting
+  // Sort cuts in reverse to preserve timecodes
   cutList.sort(function(a: any, b: any) {
     return b.startTimecode - a.startTimecode;
   });
 
   var appliedCount = 0;
-  var t, c, cut, track, clip;
-  var tolerance = 0.04; // ~1 frame at 30fps
+  var t, cut;
 
+  // Phase 1: Razor all cuts first
   for (var ci = 0; ci < cutList.length; ci++) {
     cut = cutList[ci];
-
-    // Razor at start and end on all tracks
     for (t = 0; t < seq.audioTracks.numTracks; t++) {
       razorAtTime(cut.startTimecode, t, false);
       razorAtTime(cut.endTimecode, t, false);
@@ -56,69 +59,65 @@ export var applyJumpCuts = function(cutListJson: string): string {
       razorAtTime(cut.startTimecode, t, true);
       razorAtTime(cut.endTimecode, t, true);
     }
+  }
 
-    if (cut.action === "delete") {
-      // After razoring, find clips that fall within the cut range and remove them.
-      // A clip is "inside" the cut if its start >= cut start AND its end <= cut end.
-      // We iterate in reverse so removing doesn't shift indices.
+  // Phase 2: Remove or disable the silent sections
+  if (cutList.length > 0 && cutList[0].action === "delete") {
+    // Use Premiere's in/out point + extract approach (most reliable)
+    // Process in reverse order so earlier timecodes stay valid
+    for (var di = 0; di < cutList.length; di++) {
+      cut = cutList[di]; // already sorted in reverse
 
-      // Process video tracks
-      for (t = 0; t < seq.videoTracks.numTracks; t++) {
-        track = seq.videoTracks[t];
-        for (c = track.clips.numItems - 1; c >= 0; c--) {
-          clip = track.clips[c];
-          var clipStart = clip.start.seconds;
-          var clipEnd = clip.end.seconds;
-          // Check if clip is fully inside the cut range
-          if (clipStart >= cut.startTimecode - tolerance &&
-              clipEnd <= cut.endTimecode + tolerance &&
-              clipStart < cut.endTimecode &&
-              clipEnd > cut.startTimecode) {
-            clip.remove(true, true);
-          }
-        }
+      // Set in and out points on the sequence
+      var inTime = new Time();
+      inTime.ticks = secondsToTicks(cut.startTimecode);
+      var outTime = new Time();
+      outTime.ticks = secondsToTicks(cut.endTimecode);
+
+      seq.setInPoint(inTime.ticks);
+      seq.setOutPoint(outTime.ticks);
+
+      // Execute "Extract" command (ripple delete between in/out)
+      // Extract = Premiere menu Edit > Extract (shortcut: ')
+      // This removes content between in/out and closes the gap
+      if (initQE()) {
+        qe.project.getActiveSequence().extract();
       }
 
-      // Process audio tracks
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        track = seq.audioTracks[t];
-        for (c = track.clips.numItems - 1; c >= 0; c--) {
-          clip = track.clips[c];
-          var aClipStart = clip.start.seconds;
-          var aClipEnd = clip.end.seconds;
-          if (aClipStart >= cut.startTimecode - tolerance &&
-              aClipEnd <= cut.endTimecode + tolerance &&
-              aClipStart < cut.endTimecode &&
-              aClipEnd > cut.startTimecode) {
-            clip.remove(true, true);
-          }
-        }
-      }
-    } else {
-      // Disable mode: disable clips in the range
-      for (t = 0; t < seq.videoTracks.numTracks; t++) {
-        track = seq.videoTracks[t];
-        for (c = 0; c < track.clips.numItems; c++) {
-          clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - tolerance &&
-              clip.end.seconds <= cut.endTimecode + tolerance) {
-            clip.disabled = true;
-          }
-        }
-      }
-      for (t = 0; t < seq.audioTracks.numTracks; t++) {
-        track = seq.audioTracks[t];
-        for (c = 0; c < track.clips.numItems; c++) {
-          clip = track.clips[c];
-          if (clip.start.seconds >= cut.startTimecode - tolerance &&
-              clip.end.seconds <= cut.endTimecode + tolerance) {
-            clip.disabled = true;
-          }
-        }
-      }
+      appliedCount++;
     }
 
-    appliedCount++;
+    // Clear in/out points after we're done
+    seq.setInPoint("");
+    seq.setOutPoint("");
+
+  } else {
+    // Disable mode: disable clips in each cut range
+    var tolerance = 0.04;
+    for (var dsi = 0; dsi < cutList.length; dsi++) {
+      cut = cutList[dsi];
+      for (t = 0; t < seq.videoTracks.numTracks; t++) {
+        var vTrack = seq.videoTracks[t];
+        for (var vc = 0; vc < vTrack.clips.numItems; vc++) {
+          var vClip = vTrack.clips[vc];
+          if (vClip.start.seconds >= cut.startTimecode - tolerance &&
+              vClip.end.seconds <= cut.endTimecode + tolerance) {
+            vClip.disabled = true;
+          }
+        }
+      }
+      for (t = 0; t < seq.audioTracks.numTracks; t++) {
+        var aTrack = seq.audioTracks[t];
+        for (var ac = 0; ac < aTrack.clips.numItems; ac++) {
+          var aClip = aTrack.clips[ac];
+          if (aClip.start.seconds >= cut.startTimecode - tolerance &&
+              aClip.end.seconds <= cut.endTimecode + tolerance) {
+            aClip.disabled = true;
+          }
+        }
+      }
+      appliedCount++;
+    }
   }
 
   return JSON.stringify({ success: true, cutsApplied: appliedCount });
@@ -130,7 +129,7 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
   if (!seq) return JSON.stringify({ error: "No active sequence" });
 
   var timePoints: number[] = [];
-  var sw, time;
+  var sw;
   var seen: any = {};
   for (var si = 0; si < switches.length; si++) {
     sw = switches[si];
