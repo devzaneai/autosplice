@@ -6,6 +6,8 @@ import { Preview } from "./Preview";
 import { useAnalysis } from "../hooks/useAnalysis";
 import { DEFAULT_JUMP_CUT } from "../../../shared/defaults";
 import type { JumpCutSettings, JumpCutResult } from "../../../shared/types";
+import { analyzeJumpCuts } from "../../engine/jump-cut-engine";
+import { evalTS } from "../../lib/utils/bolt";
 
 export const JumpCutTab = () => {
   const [settings, setSettings] = useState<JumpCutSettings>(DEFAULT_JUMP_CUT);
@@ -15,7 +17,7 @@ export const JumpCutTab = () => {
 
   const updateSetting = <K extends keyof JumpCutSettings>(
     key: K,
-    value: JumpCutSettings[K]
+    value: JumpCutSettings[K],
   ) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
@@ -23,7 +25,11 @@ export const JumpCutTab = () => {
   const handleAnalyze = useCallback(async () => {
     analysis.startAnalysis();
     try {
-      // TODO: Wire up engine.analyzeJumpCuts(settings) in Phase 5
+      const analysisResult = await analyzeJumpCuts(
+        settings,
+        analysis.updateProgress,
+      );
+      setResult(analysisResult);
       analysis.completeAnalysis();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Analysis failed";
@@ -34,7 +40,20 @@ export const JumpCutTab = () => {
   const handleApply = useCallback(async () => {
     if (!result) return;
     try {
-      // TODO: Wire up evalTS("applyJumpCuts", ...) in Phase 5
+      const response = await evalTS(
+        "applyJumpCuts",
+        JSON.stringify(result.cutList),
+      );
+      const parsed = response as unknown as {
+        error?: string;
+        cutsApplied?: number;
+      };
+      if (parsed.error) throw new Error(parsed.error);
+      analysis.updateProgress({
+        phase: "complete",
+        percent: 100,
+        message: `Applied ${parsed.cutsApplied} cuts`,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Apply failed";
       analysis.failAnalysis(message);
@@ -138,10 +157,7 @@ export const JumpCutTab = () => {
         visible={analysis.isAnalyzing}
       />
 
-      <StatusMessage
-        message={analysis.error}
-        type="error"
-      />
+      <StatusMessage message={analysis.error} type="error" />
     </div>
   );
 };
