@@ -6,7 +6,6 @@ import { Preview } from "./Preview";
 import { useAnalysis } from "../hooks/useAnalysis";
 import { DEFAULT_JUMP_CUT } from "../../../shared/defaults";
 import type { JumpCutSettings, JumpCutResult } from "../../../shared/types";
-import { analyzeJumpCuts } from "../../engine/jump-cut-engine";
 import { evalTS } from "../../lib/utils/bolt";
 
 export const JumpCutTab = () => {
@@ -46,9 +45,13 @@ export const JumpCutTab = () => {
       }
     };
 
-    checkSequence();
+    // Delay first check to let initBolt() load ExtendScript
+    const initialDelay = setTimeout(checkSequence, 1500);
     const interval = setInterval(checkSequence, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialDelay);
+      clearInterval(interval);
+    };
   }, []);
 
   const updateSetting = <K extends keyof JumpCutSettings>(
@@ -61,6 +64,7 @@ export const JumpCutTab = () => {
   const handleAnalyze = useCallback(async () => {
     analysis.startAnalysis();
     try {
+      const { analyzeJumpCuts } = await import("../../engine/jump-cut-engine");
       const analysisResult = await analyzeJumpCuts(
         settings,
         analysis.updateProgress,

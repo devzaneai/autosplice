@@ -5,7 +5,6 @@ import { StatusMessage } from "./StatusMessage";
 import { Preview } from "./Preview";
 import { SpeakerMap } from "./SpeakerMap";
 import { useAnalysis } from "../hooks/useAnalysis";
-import { analyzeMultiCam } from "../../engine/multi-cam-engine";
 import { evalTS } from "../../lib/utils/bolt";
 import { DEFAULT_MULTI_CAM } from "../../../shared/defaults";
 import type { MultiCamSettings, MultiCamResult } from "../../../shared/types";
@@ -56,6 +55,7 @@ export const MultiCamTab = () => {
       if (trackNames.audio) setAudioTrackNames(trackNames.audio);
       if (trackNames.video) setVideoTrackNames(trackNames.video);
 
+      const { analyzeMultiCam } = await import("../../engine/multi-cam-engine");
       const analysisResult = await analyzeMultiCam(
         settings,
         analysis.updateProgress,
