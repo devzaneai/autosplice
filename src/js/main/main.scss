@@ -84,11 +84,15 @@ body {
 // ---- Scope Indicator ----
 
 .scope-indicator {
-  font-size: 11px;
+  font-size: 10px;
   color: #888;
   padding: 4px 8px;
   background: #2a2a2a;
   border-radius: 4px;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: monospace;
 }
 
 // ---- Settings Section ----

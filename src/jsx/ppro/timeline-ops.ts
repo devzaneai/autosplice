@@ -34,44 +34,17 @@ export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVid
   return false;
 };
 
-// Check if a clip falls within any silence region
+// Check if a clip's center falls within any silence region
 var isInSilenceRegion = function(clipStartSec: number, clipEndSec: number, cuts: any[], tolerance: number): boolean {
+  var clipCenter = (clipStartSec + clipEndSec) / 2;
   for (var i = 0; i < cuts.length; i++) {
     var cut = cuts[i];
-    if (clipStartSec >= cut.startTimecode - tolerance &&
-        clipEndSec <= cut.endTimecode + tolerance &&
-        clipStartSec < cut.endTimecode &&
-        clipEndSec > cut.startTimecode) {
+    if (clipCenter >= cut.startTimecode - tolerance &&
+        clipCenter <= cut.endTimecode + tolerance) {
       return true;
     }
   }
   return false;
-};
-
-// Close gaps on a track by moving each clip flush with the previous one.
-// clip.move(absoluteSeconds) moves the clip's in-point to that timeline position.
-// Linked audio does NOT auto-follow — each track must be processed independently.
-var closeGapsOnTrack = function(track: any): number {
-  var moved = 0;
-  var nextExpectedStart = 0;
-
-  for (var i = 0; i < track.clips.numItems; i++) {
-    var clip = track.clips[i];
-    var clipStart = clip.start.seconds;
-    var clipDuration = clip.end.seconds - clip.start.seconds;
-
-    // If there's a gap (clip starts after where it should)
-    if (clipStart > nextExpectedStart + 0.001) {
-      clip.move(nextExpectedStart);
-      moved++;
-    }
-
-    // Update expected start for next clip
-    // Re-read position after potential move
-    nextExpectedStart = track.clips[i].end.seconds;
-  }
-
-  return moved;
 };
 
 export var applyJumpCuts = function(cutListJson: string): string {
@@ -85,22 +58,27 @@ export var applyJumpCuts = function(cutListJson: string): string {
   if (cutList.length > 0 && cutList[0].action === "delete") {
 
     // =====================================================
-    // PHASE 1: Razor at all cut boundaries (video only)
-    // Premiere auto-razors linked audio
+    // PHASE 1: Razor at ALL cut boundaries on ALL tracks
+    // Both video AND audio must be razored explicitly.
     // =====================================================
     for (var ci = 0; ci < cutList.length; ci++) {
       cut = cutList[ci];
+      // Razor every video track
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
         razorAtTime(cut.startTimecode, t, true);
         razorAtTime(cut.endTimecode, t, true);
       }
+      // Razor every audio track explicitly
+      for (t = 0; t < seq.audioTracks.numTracks; t++) {
+        razorAtTime(cut.startTimecode, t, false);
+        razorAtTime(cut.endTimecode, t, false);
+      }
     }
 
     // =====================================================
-    // PHASE 2: Remove clips that fall in silence regions
-    // Process each track independently, in reverse index order.
-    // Use remove(false, false) = lift (remove without ripple).
-    // We'll close gaps manually in Phase 3.
+    // PHASE 2: Remove silent clips with ripple delete.
+    // Process ALL tracks. Reverse index order so indices
+    // don't shift as we remove.
     // =====================================================
 
     // Video tracks
@@ -109,7 +87,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
       for (var vc = vTrack.clips.numItems - 1; vc >= 0; vc--) {
         var vClip = vTrack.clips[vc];
         if (isInSilenceRegion(vClip.start.seconds, vClip.end.seconds, cutList, tolerance)) {
-          vClip.remove(false, true);
+          vClip.remove(true, true);
         }
       }
     }
@@ -120,30 +98,16 @@ export var applyJumpCuts = function(cutListJson: string): string {
       for (var ac = aTrack.clips.numItems - 1; ac >= 0; ac--) {
         var aClip = aTrack.clips[ac];
         if (isInSilenceRegion(aClip.start.seconds, aClip.end.seconds, cutList, tolerance)) {
-          aClip.remove(false, true);
+          aClip.remove(true, true);
         }
       }
-    }
-
-    // =====================================================
-    // PHASE 3: Close all gaps using clip.move()
-    // Process each track independently. move() takes an
-    // absolute timeline position. Linked audio does NOT
-    // auto-follow, so we process all tracks.
-    // =====================================================
-
-    for (t = 0; t < seq.videoTracks.numTracks; t++) {
-      closeGapsOnTrack(seq.videoTracks[t]);
-    }
-    for (t = 0; t < seq.audioTracks.numTracks; t++) {
-      closeGapsOnTrack(seq.audioTracks[t]);
     }
 
     return JSON.stringify({ success: true, cutsApplied: cutList.length });
 
   } else {
     // =====================================================
-    // DISABLE MODE: Razor and disable, don't remove
+    // DISABLE MODE
     // =====================================================
     for (var rci = 0; rci < cutList.length; rci++) {
       cut = cutList[rci];
@@ -151,8 +115,11 @@ export var applyJumpCuts = function(cutListJson: string): string {
         razorAtTime(cut.startTimecode, t, true);
         razorAtTime(cut.endTimecode, t, true);
       }
+      for (t = 0; t < seq.audioTracks.numTracks; t++) {
+        razorAtTime(cut.startTimecode, t, false);
+        razorAtTime(cut.endTimecode, t, false);
+      }
     }
-
     for (var dsi = 0; dsi < cutList.length; dsi++) {
       cut = cutList[dsi];
       for (t = 0; t < seq.videoTracks.numTracks; t++) {
@@ -174,7 +141,6 @@ export var applyJumpCuts = function(cutListJson: string): string {
         }
       }
     }
-
     return JSON.stringify({ success: true, cutsApplied: cutList.length });
   }
 };

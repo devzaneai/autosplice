@@ -236,8 +236,14 @@ export const JumpCutTab = () => {
       const parsed = response as unknown as {
         error?: string;
         cutsApplied?: number;
+        log?: string[];
       };
       if (parsed.error) throw new Error(parsed.error);
+      // Show diagnostic log in scope label
+      if (parsed.log && parsed.log.length > 0) {
+        setScopeLabel(parsed.log.join("\n"));
+        console.log("ApplyJumpCuts log:", parsed.log);
+      }
       analysis.updateProgress({
         phase: "complete",
         percent: 100,
