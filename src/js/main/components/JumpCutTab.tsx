@@ -15,7 +15,9 @@ const getEvalTS = async () => {
 export const JumpCutTab = () => {
   const [settings, setSettings] = useState<JumpCutSettings>(DEFAULT_JUMP_CUT);
   const [result, setResult] = useState<JumpCutResult | null>(null);
-  const [scopeLabel, setScopeLabel] = useState("Ready — click Analyze to start");
+  const [scopeLabel, setScopeLabel] = useState(
+    "Ready — click Analyze to start",
+  );
   const [hasSequence, setHasSequence] = useState(true);
   const analysis = useAnalysis();
 
@@ -72,15 +74,153 @@ export const JumpCutTab = () => {
   const handleAnalyze = useCallback(async () => {
     analysis.startAnalysis();
     try {
-      const { analyzeJumpCuts } = await import("../../engine/jump-cut-engine");
-      const analysisResult = await analyzeJumpCuts(
-        settings,
-        analysis.updateProgress,
+      // Step 1: Get sequence info from Premiere
+      setScopeLabel("Step 1: Getting sequence info...");
+      const evalTS = await getEvalTS();
+      const seqInfo = (await evalTS("getSequenceInfo")) as any;
+      if (!seqInfo || seqInfo.error) {
+        throw new Error(seqInfo?.error || "No active sequence found");
+      }
+      setScopeLabel(
+        `Step 1 OK: "${seqInfo.name}" (${seqInfo.audioTrackCount} audio tracks)`,
       );
+
+      // Step 2: Get clips
+      let clips: any[];
+      if (seqInfo.selectedClips && seqInfo.selectedClips.length > 0) {
+        clips = seqInfo.selectedClips;
+      } else {
+        clips = (await evalTS("getAudioTrackClips", 0)) as any;
+      }
+      if (!clips || clips.length === 0) {
+        throw new Error(
+          "No clips found on the timeline. Add clips to a sequence first.",
+        );
+      }
+      setScopeLabel(
+        `Step 2 OK: Found ${clips.length} clip(s), media: ${clips[0].mediaPath}`,
+      );
+
+      // Step 3: Extract audio via FFmpeg
+      analysis.updateProgress({
+        phase: "extracting",
+        percent: 20,
+        message: "Extracting audio...",
+      });
+      setScopeLabel("Step 3: Extracting audio with FFmpeg...");
+      const { extractAudio, cleanupTempFiles } = await import(
+        "../../engine/ffmpeg-bridge"
+      );
+      const wavPath = await extractAudio(
+        clips[0].mediaPath,
+        "jumpcut-analysis",
+        true,
+      );
+      setScopeLabel(`Step 3 OK: WAV at ${wavPath}`);
+
+      // Step 4: Read WAV and analyze
+      analysis.updateProgress({
+        phase: "analyzing",
+        percent: 40,
+        message: "Analyzing audio...",
+      });
+      setScopeLabel("Step 4: Reading WAV and analyzing frames...");
+      const { fs } = await import("../../lib/cep/node");
+      const { readWav } = await import("../../engine/wav-reader");
+      const { analyzeFrames } = await import("../../engine/analyzer");
+      const { ANALYSIS_CONSTANTS } = await import("../../../shared/defaults");
+
+      const wavBuffer = fs.readFileSync(wavPath);
+      const wavData = readWav(wavBuffer);
+      const frameData = analyzeFrames(
+        wavData.samples,
+        wavData.sampleRate,
+        ANALYSIS_CONSTANTS.FRAME_LENGTH,
+        ANALYSIS_CONSTANTS.HOP_SIZE,
+      );
+      setScopeLabel(
+        `Step 4 OK: ${frameData.totalFrames} frames, ${wavData.duration.toFixed(1)}s`,
+      );
+
+      // Step 5: Detect silence
+      analysis.updateProgress({
+        phase: "detecting",
+        percent: 65,
+        message: "Detecting silence...",
+      });
+      setScopeLabel("Step 5: Detecting silence regions...");
+      const { detectSilence, filterByDuration, applyPadding } = await import(
+        "../../engine/silence-detector"
+      );
+
+      let silenceRegions = detectSilence(
+        frameData.rmsValues,
+        settings.silenceThresholdDb,
+        ANALYSIS_CONSTANTS.HOP_SIZE,
+        wavData.sampleRate,
+      );
+      silenceRegions = filterByDuration(
+        silenceRegions,
+        settings.minSilenceDurationMs,
+      );
+      silenceRegions = applyPadding(
+        silenceRegions,
+        settings.paddingMs,
+        frameData.durationSeconds,
+      );
+
+      // Step 6: Generate cut list
+      const { analysisTimeToTimeline } = await import(
+        "../../engine/time-mapper"
+      );
+      const frameRate = seqInfo.frameRate || 30;
+      const cutList = silenceRegions.map((region: any) => ({
+        startTimecode: analysisTimeToTimeline(
+          region.startSeconds,
+          clips[0].startTime,
+          clips[0].inPoint,
+          frameRate,
+        ),
+        endTimecode: analysisTimeToTimeline(
+          region.endSeconds,
+          clips[0].startTime,
+          clips[0].inPoint,
+          frameRate,
+        ),
+        action: settings.mode,
+      }));
+
+      const totalDuration = frameData.durationSeconds;
+      const silenceDuration = silenceRegions.reduce(
+        (sum: number, r: any) => sum + (r.endSeconds - r.startSeconds),
+        0,
+      );
+
+      const analysisResult = {
+        cutList,
+        totalDuration,
+        keptDuration: totalDuration - silenceDuration,
+        silenceCount: cutList.length,
+      };
+
       setResult(analysisResult);
+      setScopeLabel(
+        `Found ${cutList.length} silence regions. Keeping ${Math.round((analysisResult.keptDuration / totalDuration) * 100)}% of audio.`,
+      );
       analysis.completeAnalysis();
+      cleanupTempFiles();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Analysis failed";
+      let message: string;
+      if (err instanceof Error) {
+        message = err.message;
+      } else if (err && typeof err === "object" && "message" in err) {
+        message = String((err as any).message);
+        if ("fileName" in err) message += ` (file: ${(err as any).fileName})`;
+        if ("line" in err) message += ` (line: ${(err as any).line})`;
+      } else {
+        message = JSON.stringify(err);
+      }
+      setScopeLabel(`ERROR: ${message}`);
       analysis.failAnalysis(message);
     }
   }, [settings, analysis]);
