@@ -5,36 +5,25 @@ import { StatusMessage } from "./StatusMessage";
 import { Preview } from "./Preview";
 import { SpeakerMap } from "./SpeakerMap";
 import { useAnalysis } from "../hooks/useAnalysis";
-import { evalTS } from "../../lib/utils/bolt";
 import { DEFAULT_MULTI_CAM } from "../../../shared/defaults";
 import type { MultiCamSettings, MultiCamResult } from "../../../shared/types";
 
+const getEvalTS = async () => {
+  const bolt = await import("../../lib/utils/bolt");
+  return bolt.evalTS;
+};
+
 const CAMERA_COLORS = [
-  "#4a9eff",
-  "#ff6b6b",
-  "#51cf66",
-  "#ffd43b",
-  "#cc5de8",
-  "#ff922b",
-  "#20c997",
-  "#f06595",
-  "#868e96",
-  "#339af0",
+  "#4a9eff", "#ff6b6b", "#51cf66", "#ffd43b",
+  "#cc5de8", "#ff922b", "#20c997", "#f06595",
+  "#868e96", "#339af0",
 ];
 
 export const MultiCamTab = () => {
   const [settings, setSettings] = useState<MultiCamSettings>(DEFAULT_MULTI_CAM);
   const [result, setResult] = useState<MultiCamResult | null>(null);
-  const [audioTrackNames, setAudioTrackNames] = useState<string[]>([
-    "A1",
-    "A2",
-    "A3",
-  ]);
-  const [videoTrackNames, setVideoTrackNames] = useState<string[]>([
-    "V1",
-    "V2",
-    "V3",
-  ]);
+  const [audioTrackNames, setAudioTrackNames] = useState<string[]>(["A1", "A2", "A3"]);
+  const [videoTrackNames, setVideoTrackNames] = useState<string[]>(["V1", "V2", "V3"]);
   const analysis = useAnalysis();
 
   const updateSetting = <K extends keyof MultiCamSettings>(
@@ -47,7 +36,7 @@ export const MultiCamTab = () => {
   const handleAnalyze = useCallback(async () => {
     analysis.startAnalysis();
     try {
-      // Fetch real track names from Premiere
+      const evalTS = await getEvalTS();
       const trackNames = (await evalTS("getTrackNames")) as unknown as {
         audio: string[];
         video: string[];
@@ -71,6 +60,7 @@ export const MultiCamTab = () => {
   const handleApply = useCallback(async () => {
     if (!result) return;
     try {
+      const evalTS = await getEvalTS();
       const response = await evalTS(
         "applyMultiCamSwitches",
         JSON.stringify(result.switches),
@@ -114,30 +104,21 @@ export const MultiCamTab = () => {
         <Slider
           label="Min Cut Duration"
           value={settings.minCutDurationSeconds}
-          min={1}
-          max={10}
-          step={0.5}
-          unit="s"
+          min={1} max={10} step={0.5} unit="s"
           tooltip="Minimum time before switching cameras"
           onChange={(v) => updateSetting("minCutDurationSeconds", v)}
         />
         <Slider
           label="Crosstalk Sensitivity"
           value={settings.crosstalkSensitivityDb}
-          min={2}
-          max={15}
-          step={1}
-          unit=" dB"
+          min={2} max={15} step={1} unit=" dB"
           tooltip="Required loudness differential to confirm active speaker"
           onChange={(v) => updateSetting("crosstalkSensitivityDb", v)}
         />
         <Slider
           label="Wide Shot Frequency"
           value={settings.wideShotFrequencySeconds}
-          min={10}
-          max={120}
-          step={5}
-          unit="s"
+          min={10} max={120} step={5} unit="s"
           tooltip="How often to insert a wide/group shot"
           onChange={(v) => updateSetting("wideShotFrequencySeconds", v)}
         />
@@ -156,27 +137,15 @@ export const MultiCamTab = () => {
       )}
 
       <div className="button-group">
-        <button
-          onClick={handleAnalyze}
-          disabled={analysis.isAnalyzing}
-          className="btn-primary"
-        >
+        <button onClick={handleAnalyze} disabled={analysis.isAnalyzing} className="btn-primary">
           Analyze
         </button>
-        <button
-          onClick={handleApply}
-          disabled={!result || analysis.isAnalyzing}
-          className="btn-apply"
-        >
+        <button onClick={handleApply} disabled={!result || analysis.isAnalyzing} className="btn-apply">
           Apply
         </button>
       </div>
 
-      <ProgressBar
-        percent={analysis.progress.percent}
-        message={analysis.progress.message}
-        visible={analysis.isAnalyzing}
-      />
+      <ProgressBar percent={analysis.progress.percent} message={analysis.progress.message} visible={analysis.isAnalyzing} />
       <StatusMessage message={analysis.error} type="error" />
     </div>
   );

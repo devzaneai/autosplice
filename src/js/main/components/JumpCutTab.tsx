@@ -6,23 +6,29 @@ import { Preview } from "./Preview";
 import { useAnalysis } from "../hooks/useAnalysis";
 import { DEFAULT_JUMP_CUT } from "../../../shared/defaults";
 import type { JumpCutSettings, JumpCutResult } from "../../../shared/types";
-import { evalTS } from "../../lib/utils/bolt";
+
+const getEvalTS = async () => {
+  const bolt = await import("../../lib/utils/bolt");
+  return bolt.evalTS;
+};
 
 export const JumpCutTab = () => {
   const [settings, setSettings] = useState<JumpCutSettings>(DEFAULT_JUMP_CUT);
   const [result, setResult] = useState<JumpCutResult | null>(null);
-  const [scopeLabel, setScopeLabel] = useState("Checking sequence...");
-  const [hasSequence, setHasSequence] = useState(false);
+  const [scopeLabel, setScopeLabel] = useState("Ready — click Analyze to start");
+  const [hasSequence, setHasSequence] = useState(true);
   const analysis = useAnalysis();
 
   useEffect(() => {
+    if (!window.cep) return;
+
+    let cancelled = false;
+
     const checkSequence = async () => {
       try {
-        if (!window.cep) {
-          setScopeLabel("Not in Premiere Pro");
-          return;
-        }
+        const evalTS = await getEvalTS();
         const info = await evalTS("getSequenceInfo");
+        if (cancelled) return;
         const seqInfo = info as any;
         if (seqInfo && !seqInfo.error) {
           setHasSequence(true);
@@ -40,15 +46,17 @@ export const JumpCutTab = () => {
           setScopeLabel("No active sequence — open a sequence first");
         }
       } catch {
-        setScopeLabel("Ready — click Analyze to start");
-        setHasSequence(true);
+        if (!cancelled) {
+          setScopeLabel("Ready — click Analyze to start");
+          setHasSequence(true);
+        }
       }
     };
 
-    // Delay first check to let initBolt() load ExtendScript
-    const initialDelay = setTimeout(checkSequence, 1500);
+    const initialDelay = setTimeout(checkSequence, 2000);
     const interval = setInterval(checkSequence, 3000);
     return () => {
+      cancelled = true;
       clearTimeout(initialDelay);
       clearInterval(interval);
     };
@@ -80,6 +88,7 @@ export const JumpCutTab = () => {
   const handleApply = useCallback(async () => {
     if (!result) return;
     try {
+      const evalTS = await getEvalTS();
       const response = await evalTS(
         "applyJumpCuts",
         JSON.stringify(result.cutList),
