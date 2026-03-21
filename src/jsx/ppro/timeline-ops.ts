@@ -1,42 +1,52 @@
-export var initQE = function(): boolean {
+export var initQE = function (): boolean {
   if (typeof qe === "undefined") {
     app.enableQE();
   }
   return typeof qe !== "undefined";
 };
 
-var getTicksPerFrame = function(): number {
+var getTicksPerFrame = function (): number {
   var seq = app.project.activeSequence;
   if (!seq) return 8475667200;
   return parseInt(seq.getSettings().videoFrameRate.ticks, 10);
 };
 
-var secondsToFrameAlignedTicks = function(seconds: number): string {
+var secondsToFrameAlignedTicks = function (seconds: number): string {
   var rawTicks = seconds * 254016000000;
   var ticksPerFrame = getTicksPerFrame();
   var frameNumber = Math.round(rawTicks / ticksPerFrame);
   return (frameNumber * ticksPerFrame).toString();
 };
 
-export var razorAtTime = function(timeSeconds: number, trackIndex: number, isVideo: boolean): boolean {
+export var razorAtTime = function (
+  timeSeconds: number,
+  trackIndex: number,
+  isVideo: boolean,
+): boolean {
   if (!initQE()) return false;
   var seq = qe.project.getActiveSequence();
   if (!seq) return false;
   var ticks = secondsToFrameAlignedTicks(timeSeconds);
   if (isVideo) {
     var vTrack = seq.getVideoTrackAt(trackIndex);
-    if (vTrack) { vTrack.razor(ticks); return true; }
+    if (vTrack) {
+      vTrack.razor(ticks);
+      return true;
+    }
   } else {
     var aTrack = seq.getAudioTrackAt(trackIndex);
-    if (aTrack) { aTrack.razor(ticks); return true; }
+    if (aTrack) {
+      aTrack.razor(ticks);
+      return true;
+    }
   }
   return false;
 };
 
-export var applyJumpCuts = function(cutListJson: string): string {
+export var applyJumpCuts = function (cutListJson: string): any {
   var cutList = JSON.parse(cutListJson);
   var seq = app.project.activeSequence;
-  if (!seq) return JSON.stringify({ error: "No active sequence" });
+  if (!seq) return { error: "No active sequence" };
 
   var t, i;
   var numVideoTracks = seq.videoTracks.numTracks;
@@ -85,7 +95,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
         }
       }
     }
-    return JSON.stringify({ success: true, cutsApplied: cutList.length, mode: "disable" });
+    return { success: true, cutsApplied: cutList.length, mode: "disable" };
   }
 
   // =====================================================
@@ -95,7 +105,7 @@ export var applyJumpCuts = function(cutListJson: string): string {
   //
   // Sort cutList by startTimecode descending (latest first)
   // =====================================================
-  cutList.sort(function(a: any, b: any) {
+  cutList.sort(function (a: any, b: any) {
     return b.startTimecode - a.startTimecode;
   });
 
@@ -135,27 +145,33 @@ export var applyJumpCuts = function(cutListJson: string): string {
     }
   }
 
-  return JSON.stringify({
+  return {
     success: true,
     cutsApplied: cutList.length,
     mode: "delete",
     removedVideo: removedVideo,
-    removedAudio: removedAudio
-  });
+    removedAudio: removedAudio,
+  };
 };
 
-export var applyMultiCamSwitches = function(switchesJson: string): string {
+export var applyMultiCamSwitches = function (switchesJson: string): any {
   var switches = JSON.parse(switchesJson);
   var seq = app.project.activeSequence;
-  if (!seq) return JSON.stringify({ error: "No active sequence" });
+  if (!seq) return { error: "No active sequence" };
 
   var timePoints: number[] = [];
   var sw;
   var seen: any = {};
   for (var si = 0; si < switches.length; si++) {
     sw = switches[si];
-    if (!seen[sw.startTimecode]) { timePoints.push(sw.startTimecode); seen[sw.startTimecode] = true; }
-    if (!seen[sw.endTimecode]) { timePoints.push(sw.endTimecode); seen[sw.endTimecode] = true; }
+    if (!seen[sw.startTimecode]) {
+      timePoints.push(sw.startTimecode);
+      seen[sw.startTimecode] = true;
+    }
+    if (!seen[sw.endTimecode]) {
+      timePoints.push(sw.endTimecode);
+      seen[sw.endTimecode] = true;
+    }
   }
 
   var t, c, track, clip;
@@ -173,11 +189,11 @@ export var applyMultiCamSwitches = function(switchesJson: string): string {
         clip = track.clips[c];
         var mid = (clip.start.seconds + clip.end.seconds) / 2;
         if (mid >= sw.startTimecode && mid <= sw.endTimecode) {
-          clip.disabled = (t !== sw.cameraTrackIndex);
+          clip.disabled = t !== sw.cameraTrackIndex;
         }
       }
     }
   }
 
-  return JSON.stringify({ success: true, switchesApplied: switches.length });
+  return { success: true, switchesApplied: switches.length };
 };
