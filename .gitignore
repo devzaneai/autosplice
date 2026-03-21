@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+src/bin/ffmpeg-*
+!src/bin/.gitkeep
+bin/ffmpeg-*
