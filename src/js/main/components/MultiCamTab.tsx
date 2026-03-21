@@ -5,25 +5,42 @@ import { StatusMessage } from "./StatusMessage";
 import { Preview } from "./Preview";
 import { SpeakerMap } from "./SpeakerMap";
 import { useAnalysis } from "../hooks/useAnalysis";
+import { analyzeMultiCam } from "../../engine/multi-cam-engine";
+import { evalTS } from "../../lib/utils/bolt";
 import { DEFAULT_MULTI_CAM } from "../../../shared/defaults";
 import type { MultiCamSettings, MultiCamResult } from "../../../shared/types";
 
 const CAMERA_COLORS = [
-  "#4a9eff", "#ff6b6b", "#51cf66", "#ffd43b",
-  "#cc5de8", "#ff922b", "#20c997", "#f06595",
-  "#868e96", "#339af0",
+  "#4a9eff",
+  "#ff6b6b",
+  "#51cf66",
+  "#ffd43b",
+  "#cc5de8",
+  "#ff922b",
+  "#20c997",
+  "#f06595",
+  "#868e96",
+  "#339af0",
 ];
 
 export const MultiCamTab = () => {
   const [settings, setSettings] = useState<MultiCamSettings>(DEFAULT_MULTI_CAM);
   const [result, setResult] = useState<MultiCamResult | null>(null);
-  const [audioTrackNames, setAudioTrackNames] = useState<string[]>(["A1", "A2", "A3"]);
-  const [videoTrackNames, setVideoTrackNames] = useState<string[]>(["V1", "V2", "V3"]);
+  const [audioTrackNames, setAudioTrackNames] = useState<string[]>([
+    "A1",
+    "A2",
+    "A3",
+  ]);
+  const [videoTrackNames, setVideoTrackNames] = useState<string[]>([
+    "V1",
+    "V2",
+    "V3",
+  ]);
   const analysis = useAnalysis();
 
   const updateSetting = <K extends keyof MultiCamSettings>(
     key: K,
-    value: MultiCamSettings[K]
+    value: MultiCamSettings[K],
   ) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
@@ -31,7 +48,19 @@ export const MultiCamTab = () => {
   const handleAnalyze = useCallback(async () => {
     analysis.startAnalysis();
     try {
-      // TODO: Wire up engine.analyzeMultiCam(settings) in Phase 5
+      // Fetch real track names from Premiere
+      const trackNames = (await evalTS("getTrackNames")) as unknown as {
+        audio: string[];
+        video: string[];
+      };
+      if (trackNames.audio) setAudioTrackNames(trackNames.audio);
+      if (trackNames.video) setVideoTrackNames(trackNames.video);
+
+      const analysisResult = await analyzeMultiCam(
+        settings,
+        analysis.updateProgress,
+      );
+      setResult(analysisResult);
       analysis.completeAnalysis();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Analysis failed";
@@ -42,7 +71,20 @@ export const MultiCamTab = () => {
   const handleApply = useCallback(async () => {
     if (!result) return;
     try {
-      // TODO: Wire up evalTS("applyMultiCamSwitches", ...) in Phase 5
+      const response = await evalTS(
+        "applyMultiCamSwitches",
+        JSON.stringify(result.switches),
+      );
+      const parsed = response as unknown as {
+        error?: string;
+        switchesApplied?: number;
+      };
+      if (parsed.error) throw new Error(parsed.error);
+      analysis.updateProgress({
+        phase: "complete",
+        percent: 100,
+        message: `Applied ${parsed.switchesApplied} camera switches`,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Apply failed";
       analysis.failAnalysis(message);
@@ -72,21 +114,30 @@ export const MultiCamTab = () => {
         <Slider
           label="Min Cut Duration"
           value={settings.minCutDurationSeconds}
-          min={1} max={10} step={0.5} unit="s"
+          min={1}
+          max={10}
+          step={0.5}
+          unit="s"
           tooltip="Minimum time before switching cameras"
           onChange={(v) => updateSetting("minCutDurationSeconds", v)}
         />
         <Slider
           label="Crosstalk Sensitivity"
           value={settings.crosstalkSensitivityDb}
-          min={2} max={15} step={1} unit=" dB"
+          min={2}
+          max={15}
+          step={1}
+          unit=" dB"
           tooltip="Required loudness differential to confirm active speaker"
           onChange={(v) => updateSetting("crosstalkSensitivityDb", v)}
         />
         <Slider
           label="Wide Shot Frequency"
           value={settings.wideShotFrequencySeconds}
-          min={10} max={120} step={5} unit="s"
+          min={10}
+          max={120}
+          step={5}
+          unit="s"
           tooltip="How often to insert a wide/group shot"
           onChange={(v) => updateSetting("wideShotFrequencySeconds", v)}
         />
@@ -95,23 +146,37 @@ export const MultiCamTab = () => {
       {result && (
         <Preview
           segments={previewSegments}
-          totalDuration={result.switches.length > 0
-            ? result.switches[result.switches.length - 1].endTimecode
-            : 0}
+          totalDuration={
+            result.switches.length > 0
+              ? result.switches[result.switches.length - 1].endTimecode
+              : 0
+          }
           stats={`${result.totalCuts} cuts \u00b7 avg ${result.averageShotDuration.toFixed(1)}s per shot`}
         />
       )}
 
       <div className="button-group">
-        <button onClick={handleAnalyze} disabled={analysis.isAnalyzing} className="btn-primary">
+        <button
+          onClick={handleAnalyze}
+          disabled={analysis.isAnalyzing}
+          className="btn-primary"
+        >
           Analyze
         </button>
-        <button onClick={handleApply} disabled={!result || analysis.isAnalyzing} className="btn-apply">
+        <button
+          onClick={handleApply}
+          disabled={!result || analysis.isAnalyzing}
+          className="btn-apply"
+        >
           Apply
         </button>
       </div>
 
-      <ProgressBar percent={analysis.progress.percent} message={analysis.progress.message} visible={analysis.isAnalyzing} />
+      <ProgressBar
+        percent={analysis.progress.percent}
+        message={analysis.progress.message}
+        visible={analysis.isAnalyzing}
+      />
       <StatusMessage message={analysis.error} type="error" />
     </div>
   );
