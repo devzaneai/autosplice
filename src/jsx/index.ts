@@ -2,10 +2,12 @@
 
 import { ns } from "../shared/shared";
 import * as ppro from "./ppro/ppro";
+import * as timelineOps from "./ppro/timeline-ops";
 
 //@ts-ignore
 const host = typeof $ !== "undefined" ? $ : window;
 
-host[ns] = ppro;
+const allExports = { ...ppro, ...timelineOps };
+host[ns] = allExports;
 
-export type Scripts = typeof ppro;
+export type Scripts = typeof allExports;
