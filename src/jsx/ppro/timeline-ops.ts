@@ -166,6 +166,7 @@ export var applyMultiCamSwitches = function (switchesJson: string): any {
   var seq = app.project.activeSequence;
   if (!seq) return { error: "No active sequence" };
 
+  // Collect unique time points for razoring
   var timePoints: number[] = [];
   var sw;
   var seen: any = {};
@@ -181,26 +182,55 @@ export var applyMultiCamSwitches = function (switchesJson: string): any {
     }
   }
 
+  // =====================================================
+  // PHASE 1: Razor ONLY video tracks at switch points.
+  // DO NOT razor audio — audio stays full length.
+  // =====================================================
   var t, c, track, clip;
   for (var ti = 0; ti < timePoints.length; ti++) {
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       razorAtTime(timePoints[ti], t, true);
     }
+    // NO audio razor — audio stays untouched
   }
+
+  // =====================================================
+  // PHASE 2: For each switch region, DISABLE video clips
+  // on all tracks EXCEPT the active camera track.
+  //
+  // In Premiere, the topmost enabled video track is
+  // displayed. By disabling clips on non-active tracks,
+  // the active camera's track shows through.
+  //
+  // We disable instead of delete because:
+  // - Lift-delete would leave gaps (black frames)
+  // - Ripple-delete would shift the timeline and break sync
+  // - Disable keeps timing intact and is easily reversible
+  // =====================================================
+  var switchesApplied = 0;
 
   for (var si2 = 0; si2 < switches.length; si2++) {
     sw = switches[si2];
+    var activeTrack = sw.cameraTrackIndex;
+
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
       track = seq.videoTracks[t];
       for (c = 0; c < track.clips.numItems; c++) {
         clip = track.clips[c];
         var mid = (clip.start.seconds + clip.end.seconds) / 2;
         if (mid >= sw.startTimecode && mid <= sw.endTimecode) {
-          clip.disabled = t !== sw.cameraTrackIndex;
+          if (t === activeTrack) {
+            // This is the active camera — make sure it's enabled
+            clip.disabled = false;
+          } else {
+            // This is NOT the active camera — disable it
+            clip.disabled = true;
+          }
         }
       }
     }
+    switchesApplied++;
   }
 
-  return { success: true, switchesApplied: switches.length };
+  return { success: true, switchesApplied: switchesApplied };
 };
