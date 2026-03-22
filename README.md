@@ -2,7 +2,7 @@
 
 Open-source silence removal and multi-camera switching for Adobe Premiere Pro.
 
-AutoSplice is a free alternative to AutoPod ($29/month). It automates two of the most time-consuming editing tasks for podcasters and video creators:
+A free, open-source tool that automates the two most time-consuming editing tasks for podcasters and video creators:
 
 - **Jump Cut Editor** — Detects and removes silence from your footage
 - **Multi-Camera Editor** — Automatically switches between camera angles based on who is speaking
