@@ -195,17 +195,16 @@ export var applyMultiCamSwitches = function (switchesJson: string): any {
   }
 
   // =====================================================
-  // PHASE 2: For each switch region, DISABLE video clips
+  // PHASE 2: For each switch region, REMOVE video clips
   // on all tracks EXCEPT the active camera track.
   //
-  // In Premiere, the topmost enabled video track is
-  // displayed. By disabling clips on non-active tracks,
-  // the active camera's track shows through.
+  // Uses lift (remove without ripple) so the timeline
+  // stays the same length and audio stays in sync.
+  // The gap left on inactive tracks lets the active
+  // camera's track show through.
   //
-  // We disable instead of delete because:
-  // - Lift-delete would leave gaps (black frames)
-  // - Ripple-delete would shift the timeline and break sync
-  // - Disable keeps timing intact and is easily reversible
+  // Process in reverse index order since removing clips
+  // shifts indices on that track.
   // =====================================================
   var switchesApplied = 0;
 
@@ -214,18 +213,16 @@ export var applyMultiCamSwitches = function (switchesJson: string): any {
     var activeTrack = sw.cameraTrackIndex;
 
     for (t = 0; t < seq.videoTracks.numTracks; t++) {
+      if (t === activeTrack) continue; // Keep the active camera
+
       track = seq.videoTracks[t];
-      for (c = 0; c < track.clips.numItems; c++) {
+      for (c = track.clips.numItems - 1; c >= 0; c--) {
         clip = track.clips[c];
         var mid = (clip.start.seconds + clip.end.seconds) / 2;
         if (mid >= sw.startTimecode && mid <= sw.endTimecode) {
-          if (t === activeTrack) {
-            // This is the active camera — make sure it's enabled
-            clip.disabled = false;
-          } else {
-            // This is NOT the active camera — disable it
-            clip.disabled = true;
-          }
+          // Lift delete: remove without ripple (false = no ripple)
+          // This leaves a gap so the active track shows through
+          clip.remove(false, true);
         }
       }
     }
