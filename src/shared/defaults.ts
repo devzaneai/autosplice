@@ -1,4 +1,10 @@
-import type { JumpCutSettings, MultiCamSettings } from "./types";
+import type {
+  JumpCutSettings,
+  MultiCamSettings,
+  FillerSettings,
+  AutoZoomSettings,
+  FullEditSettings,
+} from "./types";
 
 export const DEFAULT_JUMP_CUT: JumpCutSettings = {
   silenceThresholdDb: -40,
@@ -21,4 +27,38 @@ export const ANALYSIS_CONSTANTS = {
   HOP_SIZE: 512,
   DEFAULT_SAMPLE_RATE: 44100,
   HYSTERESIS_RATIO: 0.5,
+} as const;
+
+export const DEFAULT_FILLER_WORDS: readonly string[] = [
+  "um",
+  "umm",
+  "uh",
+  "uhh",
+  "hmm",
+  "hm",
+  "like",
+  "you know",
+  "basically",
+  "actually",
+  "so",
+  "right",
+  "i mean",
+] as const;
+
+export const DEFAULT_FILLER_SETTINGS: FillerSettings = {
+  enabledFillers: [...DEFAULT_FILLER_WORDS],
+  mode: "markers",
+} as const;
+
+export const DEFAULT_AUTO_ZOOM: AutoZoomSettings = {
+  enabled: false,
+  zoomPercent: 108,
+  animated: false,
+  easeDurationSeconds: 0.5,
+} as const;
+
+export const DEFAULT_FULL_EDIT: FullEditSettings = {
+  multiCam: DEFAULT_MULTI_CAM,
+  jumpCut: DEFAULT_JUMP_CUT,
+  autoZoom: DEFAULT_AUTO_ZOOM,
 } as const;

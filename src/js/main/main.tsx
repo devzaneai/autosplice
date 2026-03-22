@@ -3,7 +3,18 @@ import { JumpCutTab } from "./components/JumpCutTab";
 import { MultiCamTab } from "./components/MultiCamTab";
 import "./main.scss";
 
-type TabId = "jumpcut" | "multicam";
+type TabId = "jumpcut" | "multicam" | "fulledit" | "fillers";
+
+const FullEditTab = () => (
+  <div className="tab-content">
+    <div className="scope-indicator">Full Edit — coming soon</div>
+  </div>
+);
+const FillerTab = () => (
+  <div className="tab-content">
+    <div className="scope-indicator">Fillers — coming soon</div>
+  </div>
+);
 
 export const App = () => {
   const [bgColor, setBgColor] = useState("#232323");
@@ -49,10 +60,24 @@ export const App = () => {
         >
           Multi-Cam
         </button>
+        <button
+          className={`tab ${activeTab === "fulledit" ? "active" : ""}`}
+          onClick={() => setActiveTab("fulledit")}
+        >
+          Full Edit
+        </button>
+        <button
+          className={`tab ${activeTab === "fillers" ? "active" : ""}`}
+          onClick={() => setActiveTab("fillers")}
+        >
+          Fillers
+        </button>
       </div>
 
       {activeTab === "jumpcut" && <JumpCutTab />}
       {activeTab === "multicam" && <MultiCamTab />}
+      {activeTab === "fulledit" && <FullEditTab />}
+      {activeTab === "fillers" && <FillerTab />}
     </div>
   );
 };
